@@ -1,0 +1,515 @@
+     1                                  ; boot12.asm  FAT12 bootstrap for real mode image or loader
+     2                                  ; Version 1.0, Jul 5, 1999
+     3                                  ; Sample code
+     4                                  ; by John S. Fine  johnfine@erols.com
+     5                                  ; I do not place any restrictions on your use of this source code
+     6                                  ; I do not provide any warranty of the correctness of this source code
+     7                                  ;_____________________________________________________________________________
+     8                                  ;
+     9                                  ; Documentation:
+    10                                  ;
+    11                                  ; I)    BASIC features
+    12                                  ; II)   Compiling and installing
+    13                                  ; III)  Detailed features and limits
+    14                                  ; IV)   Customization
+    15                                  ;_____________________________________________________________________________
+    16                                  ;
+    17                                  ; I)    BASIC features
+    18                                  ;
+    19                                  ;    This boot sector will load and start a real mode image from a file in the
+    20                                  ; root directory of a FAT12 formatted floppy or partition.
+    21                                  ;
+    22                                  ;    Inputs:
+    23                                  ; DL = drive number
+    24                                  ;
+    25                                  ;    Outputs:
+    26                                  ; The boot record is left in memory at 7C00 and the drive number is patched
+    27                                  ; into the boot record at 7C24.
+    28                                  ; SS = DS = 0
+    29                                  ; BP = 7C00
+    30                                  ;_____________________________________________________________________________
+    31                                  ;
+    32                                  ; II)   Compiling and installing
+    33                                  ;
+    34                                  ;  To compile, use NASM
+    35                                  ;
+    36                                  ;  nasm boot12.asm -o boot12.bin
+    37                                  ;
+    38                                  ;  Then you must copy the first three bytes of BOOT12.BIN to the first three
+    39                                  ;  bytes of the volume and copy bytes 0x3E through 0x1FF of BOOT12.BIN to
+    40                                  ;  bytes 0x3E through 0x1FF of the volume.  Bytes 0x3 through 0x3D of the
+    41                                  ;  volume should be set by a FAT12 format program and should not be modified
+    42                                  ;  when copying boot12.bin to the volume.
+    43                                  ;
+    44                                  ;  If you use my PARTCOPY program to install BOOT12.BIN on A:, the
+    45                                  ;  commands are:
+    46                                  ;
+    47                                  ;  partcopy boot12.bin 0 3 -f0
+    48                                  ;  partcopy boot12.bin 3e 1c2 -f0 3e
+    49                                  ;
+    50                                  ;  PARTCOPY can also install to a partition on a hard drive.  Please read
+    51                                  ;  partcopy documentation and use it carefully.  Careless use could overwrite
+    52                                  ;  important parts of your hard drive.
+    53                                  ;
+    54                                  ;  You can find PARTCOPY and links to NASM on my web page at
+    55                                  ;  http://www.erols.com/johnfine/
+    56                                  ;_____________________________________________________________________________
+    57                                  ;
+    58                                  ; III)  Detailed features and limits
+    59                                  ;
+    60                                  ;   Most of the limits are stable characteristics of the volume.  If you are
+    61                                  ; using boot12 in a personal project, you should check the limits before
+    62                                  ; installing boot12.  If you are using boot12 in a project for general
+    63                                  ; distribution, you should include an installation program which checks the
+    64                                  ; limits automatically.
+    65                                  ;
+    66                                  ; CPU:  Supports any 8088+ CPU.
+    67                                  ;
+    68                                  ; Volume format:  Supports only FAT12.
+    69                                  ;
+    70                                  ; Sector size:  Supports only 512 bytes per sector.
+    71                                  ;
+    72                                  ; Drive/Partition:  Supports whole drive or any partition of any drive number
+    73                                  ; supported by INT 13h.
+    74                                  ;
+    75                                  ; Diskette parameter table:  This code does not patch the diskette parameter
+    76                                  ; table.  If you boot this code from a diskette that has more sectors per
+    77                                  ; track than the default initialized by the BIOS then the failure to patch
+    78                                  ; that table may be a problem.  Because this code splits at track boundaries
+    79                                  ; a diskette with fewer sectors per track should not be a problem.
+    80                                  ;
+    81                                  ; File position:  The file name may be anywhere in the root directory and the
+    82                                  ; file may be any collection of clusters on the volume.  There are no
+    83                                  ; contiguity requirements.  (But see track limit).
+    84                                  ;
+    85                                  ; Track boundaries:  Transfers are split on track boundaries.  Many BIOS's
+    86                                  ; require that the caller split floppy transfers on track boundaries.
+    87                                  ;
+    88                                  ; 64Kb boundaries:  Transfers are split on 64Kb boundaries.  Many BIOS's
+    89                                  ; require that the caller split floppy transfers on track boundaries.
+    90                                  ;
+    91                                  ; Cluster boundaries:  Transfers are merged across cluster boundaries whenever
+    92                                  ; possible.  On some systems, this significantly reduces load time.
+    93                                  ;
+    94                                  ; Cluster 2 limit:  Cluster 2 must start before sector 65536 of the volume.
+    95                                  ; This is very likely because only the reserved sectors (usually 1) and
+    96                                  ; the FAT's (two of up to 12 sectors each) and the root directory (usually
+    97                                  ; either 15 or 32 sectors) precede cluster 2.
+    98                                  ;
+    99                                  ; Track limit:  The entire image file must reside before track 32768 of the
+   100                                  ; entire volume.  This is true on most media up to 1GB in size.  If it is a
+   101                                  ; problem it is easy to fix (see boot16.asm).  I didn't expect many people
+   102                                  ; to put FAT12 partitions beyond the first GB of a large hard drive.
+   103                                  ;
+   104                                  ; Memory boundaries:  The FAT, Root directory, and Image must all be loaded
+   105                                  ; starting at addresses that are multiples of 512 bytes (32 paragraphs).
+   106                                  ;
+   107                                  ; Memory use:  The FAT and Root directory must each fit entirely in the
+   108                                  ; first 64Kb of RAM.  They may overlap.
+   109                                  ;
+   110                                  ; Root directory size:  As released, it supports up to 928 entries in the
+   111                                  ; root directory.  If ROOT_SEG were changed to 0x7E0 it would support up
+   112                                  ; to 1040.  Most FAT12 volumes have either 240 or 512 root directory
+   113                                  ; entries.
+   114                                  ;_____________________________________________________________________________
+   115                                  ;
+   116                                  ; IV)   Customization
+   117                                  ;
+   118                                  ;   The memory usage can be customized by changing the _SEG variables (see
+   119                                  ; directly below).
+   120                                  ;
+   121                                  ;   The file name to be loaded and the message displayed in case of error
+   122                                  ; may be customized (see end of this file).
+   123                                  ;
+   124                                  ;   The ouput values may be customized.  For example, many loaders expect the
+   125                                  ; bootsector to leave the drive number in DL.  You could add "mov dl,[drive]"
+   126                                  ; at the label "eof:".
+   127                                  ;
+   128                                  ;   Some limits (like maximum track) may be removed.  See boot16.asm for
+   129                                  ; comparison.
+   130                                  ;
+   131                                  ;   Change whatever else you like.  The above are just likely possibilities.
+   132                                  ;_____________________________________________________________________________
+   133                                  
+   134                                  
+   135                                  ; Change the _SEG values to customize memory use during the boot.
+   136                                  ; When planning memory use, remember:
+   137                                  ;
+   138                                  ; *)  Each of ROOT_SEG, FAT_SEG, and IMAGE_SEG must be divisible by 0x20
+   139                                  ;
+   140                                  ; *)  None of ROOT, FAT or IMAGE should overlap the boot code itself, or
+   141                                  ;     its stack.  That means: avoid paragraphs 0x7B0 to 0x7DF.
+   142                                  ;
+   143                                  ; *)  The FAT area must not overlap the IMAGE area.  Either may overlap
+   144                                  ;     the ROOT area;  But, if they do then the root will not remain in
+   145                                  ;     memory for possible reuse by the next stage.
+   146                                  ;
+   147                                  ; *)  The FAT area and the root area must each fit within the first 64Kb
+   148                                  ;     excluding BIOS area (paragraphs 0x60 to 0xFFF).
+   149                                  ;
+   150                                  ; *)  A FAT12 FAT can be up to 6Kb (0x180 paragraphs).
+   151                                  ;
+   152                                  ; *)  A FAT12 root directory is typically either 0x1E0 or 0x400 paragraphs
+   153                                  ;     long, but larger sizes are possible.
+   154                                  ;
+   155                                  ; *)  The code will be two bytes shorter when FAT_SEG is 0x800 than when it
+   156                                  ;     is another value.  (If you reach the point of caring about two bytes).
+   157                                  ;
+   158                                  %define ROOT_SEG	0x60
+   159                                  %define FAT_SEG		0x800
+   160                                  %define IMAGE_SEG	0x1000
+   161                                  %define IMAGE_START       65536
+   162                                  %define EX_START          0
+   163                                  
+   164                                  
+   165                                  %if ROOT_SEG & 31
+   166                                    %error "ROOT_SEG must be divisible by 0x20"
+   167                                  %endif
+   168                                  %if ROOT_SEG > 0xC00
+   169                                    %error "Root directory must fit within first 64Kb"
+   170                                  %endif
+   171                                  %if FAT_SEG & 31
+   172                                    %error "FAT_SEG must be divisible by 0x20"
+   173                                  %endif
+   174                                  %if FAT_SEG > 0xE80
+   175                                    %error "FAT must fit within first 64Kb"
+   176                                  %endif
+   177                                  %if IMAGE_SEG & 31
+   178                                    %error "IMAGE_SEG must be divisible by 0x20"
+   179                                  %endif
+   180                                  
+   181                                  ; The following %define directives declare the parts of the FAT12 "DOS BOOT
+   182                                  ; RECORD" that are used by this code, based on BP being set to 7C00.
+   183                                  ;
+   184                                  %define	sc_p_clu	bp+0Dh		;byte  Sectors per cluster
+   185                                  %define	sc_b4_fat	bp+0Eh		;word  Sectors (in partition) before FAT
+   186                                  %define	fats		bp+10h		;byte  Number of FATs
+   187                                  %define dir_ent		bp+11h		;word  Number of root directory entries
+   188                                  %define	sc_p_fat	bp+16h		;word  Sectors per FAT
+   189                                  %define sc_p_trk	bp+18h		;word  Sectors per track
+   190                                  %define heads		bp+1Ah		;word  Number of heads
+   191                                  %define sc_b4_prt	bp+1Ch		;dword Sectors before partition
+   192                                  %define drive		bp+24h		;byte  Drive number
+   193                                  
+   194                                  	org	0x7C00
+   195                                  
+   196                                  entry:
+   197 00000000 EB52                    	jmp	short begin
+   198                                  
+   199                                  ; --------------------------------------------------
+   200                                  ; data portion of the "DOS BOOT RECORD"
+   201                                  ; --------------------------------------------------
+   202 00000002 90                      brINT13Flag     DB      90H             ; 0002h - 0EH for INT13 AH=42 READ
+   203 00000003 4D53444F53352E30        brOEM           DB      'MSDOS5.0'      ; 0003h - OEM ID - Windows 95B
+   204 0000000B 0002                    brBPS           DW      512             ; 000Bh - Bytes per sector
+   205 0000000D 01                      brSPC           DB      1               ; 000Dh - Sector per cluster
+   206 0000000E 0100                    brSc_b4_fat	DW      1               ; 000Eh - Reserved sectors
+   207 00000010 02                      brFATs          DB      2               ; 0010h - FAT copies
+   208 00000011 E000                    brRootEntries   DW      0E0H		; 0011h - Root directory entries
+   209 00000013 400B                    brSectorCount   DW      2880		; 0013h - Sectors in volume, &lt; 32MB
+   210 00000015 F0                      brMedia         DB      240		; 0015h - Media descriptor
+   211 00000016 0900                    brSPF           DW      9               ; 0016h - Sectors per FAT
+   212 00000018 1200                    brSc_p_trk	DW      18              ; 0018h - Sectors per head/track
+   213 0000001A 0200                    brHPC           DW      2		; 001Ah - Heads per cylinder
+   214 0000001C 00000000                brSc_b4_prt	DD      0               ; 001Ch - Hidden sectors
+   215 00000020 00000000                brSectors       DD      0		; 0020h - Total number of sectors
+   216 00000024 00                      brDrive		DB      0               ; 0024h - Physical drive no.
+   217 00000025 00                      		DB      0               ; 0025h - Reserved (FAT32)
+   218 00000026 29                      		DB      29H             ; 0026h - Extended boot record sig (FAT32)
+   219 00000027 EA184440                brSerialNum     DD      404418EAH       ; 0027h - Volume serial number
+   220 0000002B 4A6F656C7320646973-     brLabel         DB      'Joels disk '   ; 002Bh - Volume label
+   220 00000034 6B20               
+   221 00000036 4641543132202020        brFSID          DB      'FAT12   '      ; 0036h - File System ID
+   222                                  ;------------------------------------------------------------------------
+   223                                  
+   224                                  
+   225 0000003E BE[9101]                error:	mov	si, errmsg		;Same message for all detected errors
+   226 00000041 B80D0E                  	mov	ax, 0xE0D		;Start message with CR
+   227 00000044 BB0700                  	mov	bx, 7
+   228 00000047 CD10                    .1:	int	10h
+   229 00000049 AC                      	lodsb
+   230 0000004A 84C0                    	test	al, al
+   231 0000004C 75F9                    	jnz	.1
+   232 0000004E 30E4                    	xor	ah, ah
+   233 00000050 CD16                    	int	16h			;Wait for a key
+   234 00000052 CD19                    	int	19h			;Try to reboot
+   235                                  
+   236                                  begin:
+   237 00000054 31C0                    	xor	ax, ax
+   238 00000056 8ED8                    	mov	ds, ax
+   239 00000058 8ED0                    	mov	ss, ax
+   240 0000005A BC007C                  	mov	sp, 0x7C00
+   241 0000005D 89E5                    	mov	bp, sp
+   242 0000005F 885624                  	mov	[drive], dl		;Drive number
+   243                                  
+   244 00000062 8A4610                  	mov	al, [fats]		;Number of FATs
+   245 00000065 F76616                  	mul	word [sc_p_fat]		; * Sectors per FAT
+   246 00000068 03460E                  	add	ax, [sc_b4_fat]		; + Sectors before FAT
+   247                                  					;AX = Sector of Root directory
+   248                                  
+   249 0000006B 8B7611                  	mov	si, [dir_ent]		;Max root directory entries
+   250 0000006E B104                    	mov	cl, 4
+   251 00000070 4E                      	dec	si
+   252 00000071 D3EE                    	shr	si, cl
+   253 00000073 46                      	inc	si			;SI = Length of root in sectors
+   254                                  
+   255 00000074 BF0300                  	mov	di, ROOT_SEG/32		;Buffer (paragraph / 32)
+   256 00000077 E8BD00                  	call	read_16			;Read root directory
+   257 0000007A 50                      	push	ax			;Sector of cluster two
+   258                                  %define sc_clu2 bp-2			;Later access to the word just pushed is via bp
+   259                                  
+   260 0000007B 8B5611                  	mov	dx, [dir_ent]		;Number of directory entries
+   261 0000007E 1E                      	push	ds
+   262 0000007F 07                      	pop	es
+   263 00000080 BF0006                  	mov	di, ROOT_SEG*16
+   264                                  
+   265                                  search:
+   266 00000083 4A                      	dec	dx			;Any more directory entries?
+   267 00000084 78B8                    	js	error			;No
+   268 00000086 BE[F301]                	mov	si, filename		;Name we are searching for
+   269 00000089 B90B00                  	mov	cx, 11			;11 characters long
+   270 0000008C 8D4520                  	lea	ax, [di+0x20]		;Precompute next entry address
+   271 0000008F 50                      	push	ax
+   272 00000090 F3A6                    	repe cmpsb			;Compare
+   273 00000092 5F                      	pop	di
+   274 00000093 75EE                    	jnz	search			;Repeat until match
+   275                                  
+   276 00000095 FF75FA                  	push word [di-6]		;Starting cluster number
+   277                                  
+   278 00000098 8B460E                  	mov	ax, [sc_b4_fat]		;Sector number of FAT
+   279 0000009B 8B7616                  	mov	si, [sc_p_fat]		;Length of FAT
+   280 0000009E BF4000                  	mov	di, FAT_SEG/32		;Buffer (paragraph / 32)
+   281 000000A1 E89300                  	call	read_16			;Read FAT
+   282                                  
+   283                                  next:
+   284 000000A4 5B                      	pop	bx			;Cluster number
+   285 000000A5 89DE                    	mov	si, bx			;First cluster in this sequence
+   286 000000A7 89D8                    	mov	ax, bx			;Last cluster in this sequence
+   287                                  
+   288                                  .0:
+   289 000000A9 81FBF80F                	cmp	bx, 0xFF8		;End of file?
+   290 000000AD 7318                    	jae	.2			; Yes
+   291 000000AF 40                      	inc	ax			;Last cluster plus one in sequence
+   292                                  
+   293                                  	;Look in FAT for next cluster
+   294 000000B0 89DF                    	mov	di, bx			;Cluster number
+   295 000000B2 D1DB                    	rcr	bx, 1			;1.5 byte entry per cluster
+   296                                  					;bx = 0x8000 + cluster/2
+   297                                  					;c-bit set for odd clusters
+   298                                  
+   299 000000B4 8B19                    	mov	bx, [bx+di+FAT_SEG*16-0x8000]
+   300 000000B6 7308                    	jnc	.1
+   301 000000B8 D1EB                    	shr	bx, 1
+   302 000000BA D1EB                    	shr	bx, 1
+   303 000000BC D1EB                    	shr	bx, 1
+   304 000000BE D1EB                    	shr	bx, 1
+   305 000000C0 80E70F                  .1:	and	bh, 0xF
+   306                                  
+   307 000000C3 39D8                    	cmp	ax, bx			;Is the next one contiguous?
+   308 000000C5 74E2                    	je	.0			;Yes: look further ahead
+   309 000000C7 29F0                    .2:	sub	ax, si			;How many contiguous in this sequence?
+   310 000000C9 741E                    	jz	eof			;None, must be done.
+   311                                  
+   312 000000CB 53                      	push	bx			;Save next (eof or discontiguous) cluster
+   313                                  	
+   314 000000CC 8A5E0D                  	mov	bl, [sc_p_clu]		;Sectors per cluster
+   315 000000CF B700                    	mov	bh, 0			;  as a word
+   316 000000D1 F7E3                    	mul	bx			;Length of sequence in sectors
+   317 000000D3 BF8000                  .3:	mov	di, IMAGE_SEG/32 	;Destination (paragraph / 32)
+   318 000000D6 0106[D400]              	add	[.3+1], ax	 	;Precompute next destination
+   319 000000DA 96                      	xchg	ax, si			;AX = starting cluster ;SI = length in sectors
+   320 000000DB 48                      	dec	ax
+   321 000000DC 48                      	dec	ax			;Starting cluster minus two
+   322 000000DD F7E3                    	mul	bx			; * sectors per cluster
+   323 000000DF 0346FE                  	add	ax, [sc_clu2]		; + sector number of cluster two
+   324 000000E2 10F2                    	adc	dl, dh			;Allow 24-bit result
+   325                                  
+   326 000000E4 E85200                  	call	read_32			;Read it
+   327 000000E7 EBBB                    	jmp	short next		;Look for more
+   328                                  
+   329                                  eof:
+   330 000000E9 FA                      	cli
+   331 000000EA 0F011E[C401]            	lidt	[idtr]
+   332                                  
+   333 000000EF 6631DB                  	xor	ebx,ebx			; fix the gdt
+   334                                  	;mov	bx,ds                   ; BX=segment
+   335                                  	;shl	ebx,4                   ; BX="linear" address of segment base
+   336 000000F2 66678D83[D0010000]      	lea	eax,[gdt + ebx]         ; EAX=PHYSICAL address of gdt
+   337 000000FA 66A3[CC01]              	mov	[gdtr + 2],eax
+   338                                  	
+   339 000000FE 0F0116[CA01]            	lgdt	[gdtr]			; load the gdt
+   340                                  	
+   341 00000103 0F20C0                  	mov	eax,cr0			; set the PE bit in cr0
+   342 00000106 0C01                    	or	al,1
+   343 00000108 0F22C0                  	mov	cr0,eax
+   344                                  	
+   345 0000010B EA[1001]1000            	jmp	SYS_CODE_SEL:do_pm          ; jumps to do_pm   SYS_CODE_SEL
+   346                                  	
+   347                                  [BITS 32]
+   348                                  do_pm:
+   349                                  	;int	16h
+   350                                  	
+   351 00000110 66B81800                	mov ax,SYS_DATA_SEL
+   352                                  	;mov ss,ax
+   353 00000114 8ED8                    	mov ds,ax
+   354 00000116 8ED0                    	mov ss,ax
+   355                                  	
+   356                                  	;mov ax,LINEAR_SEL
+   357 00000118 8EC0                    	mov es,ax
+   358                                  	
+   359 0000011A 8D35[91010000]          	lea esi,[errmsg]                  ; -> "Finally in protected mode!"
+   360                                  
+   361                                  	; start the os
+   362 00000120 B800000100              	mov     eax, IMAGE_START
+   363                                  ;  mov ds, ax
+   364                                  ;  mov es, ax
+   365 00000125 31F6                    	xor esi, esi
+   366                                  ;  mov ss, ax
+   367 00000127 BC00000100              	mov esp, IMAGE_START
+   368 0000012C 81C4FFFF0000            	add esp, 0xffff
+   369                                  	
+   370 00000132 E9(DE000100)            	jmp	ENTRY
+   371                                  
+   372                                  [BITS 16]
+   373                                  	
+   374                                  read_16:
+   375 00000137 31D2                    	xor	dx, dx
+   376                                  
+   377                                  read_32:
+   378                                  ;
+   379                                  ; Input:
+   380                                  ;    dx:ax = sector within partition
+   381                                  ;    si    = sector count
+   382                                  ;    di    = destination segment / 32
+   383                                  ;
+   384                                  ; The sector number is converted from a partition-relative to a whole-disk
+   385                                  ; (LBN) value, and then converted to CHS form, and then the sectors are read
+   386                                  ; into (di*32):0.
+   387                                  ;
+   388                                  ; Output:
+   389                                  ;    dx:ax  updated (sector count added)
+   390                                  ;    di     updated (sector count added)
+   391                                  ;    si = 0
+   392                                  ;    bp, ds preserved
+   393                                  ;    bx, cx, es modified
+   394                                  
+   395 00000139 52                      .1:	push	dx			;(high) relative sector
+   396 0000013A 50                      	push	ax			;(low) relative sector
+   397                                  
+   398 0000013B 03461C                  	add	ax, [sc_b4_prt]		;Convert to LBN
+   399 0000013E 13561E                  	adc	dx, [sc_b4_prt+2]
+   400                                  
+   401 00000141 8B5E18                  	mov	bx, [sc_p_trk]		;Sectors per track
+   402 00000144 F7F3                    	div	bx			;AX = track ;DX = sector-1
+   403 00000146 29D3                    	sub	bx, dx			;Sectors remaining, this track
+   404 00000148 39F3                    	cmp	bx, si			;More than we want?
+   405 0000014A 7602                    	jbe	.2			;No
+   406 0000014C 89F3                    	mov	bx, si			;Yes: Transfer just what we want
+   407 0000014E 42                      .2:	inc	dx			;Sector number
+   408 0000014F 89D1                    	mov	cx, dx			;CL = sector ;CH = 0
+   409 00000151 99                      	cwd				;(This supports up to 32767 tracks
+   410 00000152 F7761A                  	div	word [heads]		;Track number / Number of heads
+   411 00000155 88D6                    	mov	dh, dl			;DH = head
+   412                                  
+   413 00000157 86E8                    	xchg	ch, al			;CH = (low) cylinder  ;AL=0
+   414 00000159 D0CC                    	ror	ah, 1			;rotate (high) cylinder
+   415 0000015B D0CC                    	ror	ah, 1
+   416 0000015D 00E1                    	add	cl, ah			;CL = combine: sector, (high) cylinder
+   417                                  
+   418 0000015F 29F8                    	sub	ax, di
+   419 00000161 83E07F                  	and	ax, byte 0x7F		;AX = sectors to next 64Kb boundary
+   420 00000164 7404                    	jz	.3			;On a 64Kb boundary already
+   421 00000166 39D8                    	cmp	ax, bx			;More than we want?
+   422 00000168 7601                    	jbe	.4			;No
+   423 0000016A 93                      .3:	xchg	ax, bx			;Yes: Transfer just what we want
+   424 0000016B 50                      .4:	push	ax			;Save length
+   425 0000016C 89FB                    	mov	bx, di			;Compute destination seg
+   426 0000016E 51                      	push	cx
+   427 0000016F B105                    	mov	cl, 5
+   428 00000171 D3E3                    	shl	bx, cl
+   429 00000173 59                      	pop	cx
+   430 00000174 8EC3                    	mov	es, bx
+   431 00000176 31DB                    	xor	bx, bx			;ES:BX = address
+   432 00000178 8A5624                  	mov	dl, [drive]		;DL = Drive number
+   433 0000017B B402                    	mov	ah, 2			;AH = Read command
+   434 0000017D CD13                    	int	13h			;Do it
+   435 0000017F 0F82BBFE                	jc	error
+   436 00000183 5B                      	pop	bx			;Length
+   437 00000184 58                      	pop	ax			;(low) relative sector
+   438 00000185 5A                      	pop	dx			;(high) relative sector
+   439 00000186 01D8                    	add	ax, bx			;Update relative sector
+   440 00000188 10F2                    	adc	dl, dh
+   441 0000018A 01DF                    	add	di, bx			;Update destination
+   442 0000018C 29DE                    	sub	si, bx			;Update count
+   443 0000018E 75A9                    	jnz	.1			;Read some more
+   444 00000190 C3                      	ret
+   445                                  
+   446 00000191 0A4572726F72206C6F-     errmsg	db	10,"Error loading bootsector",13
+   446 0000019A 6164696E6720626F6F-
+   446 000001A3 74736563746F720D   
+   447 000001AB 0A5072657373206120-     	db	10,"Press a key to reboot",13,10,0
+   447 000001B4 6B657920746F207265-
+   447 000001BD 626F6F740D0A00     
+   448                                  ;errmsg	db	0
+   449                                  
+   450                                  
+   451                                  ;times(14) db 0
+   452                                  
+   453                                  ;;;;;;;;;;;;;;;;;;;;;;;
+   454                                  ; 32-bit  mode stuff! ;
+   455                                  ;;;;;;;;;;;;;;;;;;;;;;;
+   456                                  
+   457                                  idtr:
+   458 000001C4 0000                    	dw 0
+   459 000001C6 00000000                	dd 00
+   460                                  
+   461 000001CA 1F00                    gdtr:	dw gdt_end - gdt - 1	; GDT limit
+   462 000001CC [D0010000]              	dd gdt                  ; (GDT base gets set above)
+   463                                  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+   464                                  ;	global descriptor table (GDT)
+   465                                  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+   466                                  ; null descriptor
+   467 000001D0 0000                    gdt:	dw 0			; limit 15:0
+   468 000001D2 0000                    	dw 0			; base 15:0
+   469 000001D4 00                      	db 0			; base 23:16
+   470 000001D5 00                      	db 0			; type
+   471 000001D6 00                      	db 0			; limit 19:16, flags
+   472 000001D7 00                      	db 0			; base 31:24
+   473                                  
+   474                                  ; linear data segment descriptor
+   475                                  LINEAR_SEL	equ	$-gdt
+   476 000001D8 FFFF                    	dw 0xFFFF		; limit 0xFFFFF
+   477 000001DA 0000                    	dw 0			; base 0
+   478 000001DC 00                      	db 0
+   479 000001DD 92                      	db 0x92			; present, ring 0, data, expand-up, writable
+   480 000001DE CF                              db 0xCF                 ; page-granular, 32-bit
+   481 000001DF 00                      	db 0
+   482                                  
+   483                                  ; code segment descriptor
+   484                                  SYS_CODE_SEL	equ	$-gdt
+   485 000001E0 FFFF                    gdt2:   dw 0xFFFF               ; limit 0xFFFFF
+   486 000001E2 0000                    	dw 0			; (base gets set above)
+   487 000001E4 00                      	db 0
+   488 000001E5 9A                      	db 0x9A			; present, ring 0, code, non-conforming, readable
+   489 000001E6 CF                              db 0xCF                 ; page-granular, 32-bit
+   490 000001E7 00                      	db 0
+   491                                  
+   492                                  ; data segment descriptor
+   493                                  SYS_DATA_SEL	equ	$-gdt
+   494 000001E8 FFFF                    gdt3:   dw 0xFFFF               ; limit 0xFFFFF
+   495 000001EA 0000                    	dw 0			; (base gets set above)
+   496 000001EC 00                      	db 0
+   497 000001ED 92                      	db 0x92			; present, ring 0, data, expand-up, writable
+   498 000001EE CF                              db 0xCF                 ; page-granular, 32-bit
+   499 000001EF 00                      	db 0
+   500                                  gdt_end:
+   501                                  
+   502                                  size	equ	$ - entry
+   503                                  %if size+11+2 > 512
+   504                                    %error "code is too large for boot sector"
+   505                                  %endif
+   506 000001F0 00<rept>                	times	(512 - size - 11 - 2) db 0
+   507                                  
+   508 000001F3 424F4F543220202020-     filename 	db	"BOOT2      "	;11 byte name
+   508 000001FC 2020               
+   509 000001FE 55AA                    		db	0x55, 0xAA	;2  byte boot signature
