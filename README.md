@@ -4,3 +4,5 @@ It's built using C and x86 Intel Assembly
 
 You will need Qemu to run.
 On linux, type 'make run' to boot the disk image using Qemu.
+
+This OS can also be written to a USB or Floppy to boot and run on a physical machine.
